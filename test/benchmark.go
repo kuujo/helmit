@@ -30,6 +30,7 @@ type ChartBenchmarkSuite struct {
 
 // SetupBenchmark :: benchmark
 func (s *ChartBenchmarkSuite) SetupSuite(b *benchmark.Context) error {
+	helm := helm.New()
 	_, err := helm.Install("atomix-controller", "atomix-controller").
 		Set("scope", "Namespace").
 		Wait().

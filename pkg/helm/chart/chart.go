@@ -34,11 +34,22 @@ var settings = cli.New()
 
 const chartsDir = "charts"
 
+// NewClient creates a new Helm chart client
+func NewClient() Client {
+	return &chartClient{}
+}
+
 // Client is a Helm chart client
-type Client struct{}
+type Client interface {
+	// Get gets a chart by name
+	Get(name string) (*Chart, error)
+}
+
+// chartClient is a Helm chart client
+type chartClient struct{}
 
 // Get gets a chart
-func (c *Client) Get(name string) (*Chart, error) {
+func (c *chartClient) Get(name string) (*Chart, error) {
 	opts := action.ChartPathOptions{}
 	path, err := opts.LocateChart(name, settings)
 	if err != nil {
@@ -51,6 +62,8 @@ func (c *Client) Get(name string) (*Chart, error) {
 	}
 	return newChart(chart)
 }
+
+var _ Client = &chartClient{}
 
 func newChart(chart *chart.Chart) (*Chart, error) {
 	vals := values.New()

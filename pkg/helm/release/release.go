@@ -38,25 +38,49 @@ import (
 var settings = cli.New()
 
 // NewClient returns a new release client
-func NewClient(namespace string) (*Client, error) {
+func NewClient(namespace string) Client {
 	config, err := conf.get(namespace)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	return &Client{
+	return &releaseClient{
 		namespace: namespace,
 		config:    config,
-	}, nil
+	}
 }
 
-// Client is the Helm release client
-type Client struct {
+// Client is a Helm release client
+type Client interface {
+	// Namespace returns the release client namespace
+	Namespace() string
+	// Get gets a release
+	Get(name string) (*Release, error)
+	// List lists releases
+	List() ([]*Release, error)
+	// Status gets the status of a release
+	Status(name string) (StatusReport, error)
+	// Install installs a release
+	Install(release string, chart string) *InstallRequest
+	// Uninstall uninstalls a release
+	Uninstall(release string) *UninstallRequest
+	// Upgrade upgrades a release
+	Upgrade(release string, chart string) *UpgradeRequest
+	// Rollback rolls back a release
+	Rollback(release string) *RollbackRequest
+}
+
+// releaseClient is the Helm release client
+type releaseClient struct {
 	namespace string
 	config    *action.Configuration
 }
 
+func (c *releaseClient) Namespace() string {
+	return c.namespace
+}
+
 // Get gets a release
-func (c *Client) Get(name string) (*Release, error) {
+func (c *releaseClient) Get(name string) (*Release, error) {
 	list, err := c.config.Releases.List(func(r *release.Release) bool {
 		return r.Namespace == c.namespace && r.Name == name
 	})
@@ -71,7 +95,7 @@ func (c *Client) Get(name string) (*Release, error) {
 }
 
 // List lists releases
-func (c *Client) List() ([]*Release, error) {
+func (c *releaseClient) List() ([]*Release, error) {
 	list, err := c.config.Releases.List(func(r *release.Release) bool {
 		return r.Namespace == c.namespace
 	})
@@ -91,7 +115,7 @@ func (c *Client) List() ([]*Release, error) {
 }
 
 // Status gets the status of a release
-func (c *Client) Status(name string) (StatusReport, error) {
+func (c *releaseClient) Status(name string) (StatusReport, error) {
 	release, err := c.Get(name)
 	if err != nil {
 		return StatusReport{}, err
@@ -100,9 +124,10 @@ func (c *Client) Status(name string) (StatusReport, error) {
 }
 
 // Install installs a release
-func (c *Client) Install(release string, chart string) *InstallRequest {
+func (c *releaseClient) Install(release string, chart string) *InstallRequest {
 	return &InstallRequest{
 		client: c,
+		config: c.config,
 		name:   release,
 		chart:  chart,
 		values: values.New(),
@@ -110,17 +135,19 @@ func (c *Client) Install(release string, chart string) *InstallRequest {
 }
 
 // Uninstall uninstalls a release
-func (c *Client) Uninstall(release string) *UninstallRequest {
+func (c *releaseClient) Uninstall(release string) *UninstallRequest {
 	return &UninstallRequest{
 		client: c,
+		config: c.config,
 		name:   release,
 	}
 }
 
 // Upgrade upgrades a release
-func (c *Client) Upgrade(release string, chart string) *UpgradeRequest {
+func (c *releaseClient) Upgrade(release string, chart string) *UpgradeRequest {
 	return &UpgradeRequest{
 		client: c,
+		config: c.config,
 		name:   release,
 		chart:  chart,
 		values: values.New(),
@@ -128,12 +155,15 @@ func (c *Client) Upgrade(release string, chart string) *UpgradeRequest {
 }
 
 // Rollback rolls back a release
-func (c *Client) Rollback(release string) *RollbackRequest {
+func (c *releaseClient) Rollback(release string) *RollbackRequest {
 	return &RollbackRequest{
 		client: c,
+		config: c.config,
 		name:   release,
 	}
 }
+
+var _ Client = &releaseClient{}
 
 type Status string
 
@@ -186,7 +216,8 @@ func (r *Release) Client() kubernetes.Client {
 
 // InstallRequest is a release install request
 type InstallRequest struct {
-	client                   *Client
+	client                   Client
+	config                   *action.Configuration
 	name                     string
 	chart                    string
 	repo                     string
@@ -294,7 +325,7 @@ func (r *InstallRequest) Timeout(timeout time.Duration) *InstallRequest {
 }
 
 func (r *InstallRequest) Do() (*Release, error) {
-	install := action.NewInstall(r.client.config)
+	install := action.NewInstall(r.config)
 
 	// Setup the repo options
 	install.RepoURL = r.repo
@@ -309,7 +340,7 @@ func (r *InstallRequest) Do() (*Release, error) {
 
 	// Setup the release options
 	install.ReleaseName = r.name
-	install.Namespace = r.client.namespace
+	install.Namespace = r.client.Namespace()
 	install.Atomic = r.atomic
 	install.Replace = r.replace
 	install.DryRun = r.dryRun
@@ -368,24 +399,26 @@ func (r *InstallRequest) Do() (*Release, error) {
 
 	values := r.values.Normalize().Override(values.New(overrides))
 	release, err := install.Run(chart, values.Values())
-	return getRelease(r.client.config, release)
+	return getRelease(r.config, release)
 }
 
 // UninstallRequest is a release uninstall request
 type UninstallRequest struct {
-	client *Client
+	client Client
+	config *action.Configuration
 	name   string
 }
 
 func (r *UninstallRequest) Do() error {
-	uninstall := action.NewUninstall(r.client.config)
+	uninstall := action.NewUninstall(r.config)
 	_, err := uninstall.Run(r.name)
 	return err
 }
 
 // UpgradeRequest is a release upgrade request
 type UpgradeRequest struct {
-	client       *Client
+	client       Client
+	config       *action.Configuration
 	name         string
 	chart        string
 	repo         string
@@ -469,7 +502,7 @@ func (r *UpgradeRequest) Timeout(timeout time.Duration) *UpgradeRequest {
 }
 
 func (r *UpgradeRequest) Do() (*Release, error) {
-	upgrade := action.NewUpgrade(r.client.config)
+	upgrade := action.NewUpgrade(r.config)
 
 	// Setup the repo options
 	upgrade.RepoURL = r.repo
@@ -483,7 +516,7 @@ func (r *UpgradeRequest) Do() (*Release, error) {
 	upgrade.Version = r.version
 
 	// Setup the release options
-	upgrade.Namespace = r.client.namespace
+	upgrade.Namespace = r.client.Namespace()
 	upgrade.Atomic = r.atomic
 	upgrade.DryRun = r.dryRun
 	upgrade.DisableHooks = r.disableHooks
@@ -517,10 +550,10 @@ func (r *UpgradeRequest) Do() (*Release, error) {
 	if upgrade.Install {
 		// If a release does not exist, install it. If another error occurs during
 		// the check, ignore the error and continue with the upgrade.
-		histClient := action.NewHistory(r.client.config)
+		histClient := action.NewHistory(r.config)
 		histClient.Max = 1
 		if _, err := histClient.Run(r.name); err == driver.ErrReleaseNotFound {
-			install := action.NewInstall(r.client.config)
+			install := action.NewInstall(r.config)
 			install.ChartPathOptions = upgrade.ChartPathOptions
 			install.DryRun = upgrade.DryRun
 			install.DisableHooks = upgrade.DisableHooks
@@ -561,17 +594,18 @@ func (r *UpgradeRequest) Do() (*Release, error) {
 	}
 
 	release, err := upgrade.Run(r.name, chart, values.Values())
-	return getRelease(r.client.config, release)
+	return getRelease(r.config, release)
 }
 
 // RollbackRequest is a release rollback request
 type RollbackRequest struct {
-	client *Client
+	client Client
+	config *action.Configuration
 	name   string
 }
 
 func (r *RollbackRequest) Do() error {
-	rollback := action.NewRollback(r.client.config)
+	rollback := action.NewRollback(r.config)
 	return rollback.Run(r.name)
 }
 

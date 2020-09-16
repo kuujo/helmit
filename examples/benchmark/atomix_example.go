@@ -35,6 +35,7 @@ type AtomixBenchmarkSuite struct {
 
 // SetupBenchmarkSuite sets up the Atomix cluster
 func (s *AtomixBenchmarkSuite) SetupSuite(c *benchmark.Context) error {
+	helm := helm.New()
 	err := helm.Repos().
 		Add("atomix").
 		URL("https://charts.atomix.io").
@@ -72,7 +73,7 @@ func (s *AtomixBenchmarkSuite) SetupWorker(c *benchmark.Context) error {
 	}
 	client, err := atomix.New(
 		address,
-		atomix.WithNamespace(helm.Namespace()),
+		atomix.WithNamespace(helm.DefaultNamespace),
 		atomix.WithScope(c.Name))
 	if err != nil {
 		return err
@@ -117,6 +118,7 @@ func (s *AtomixBenchmarkSuite) BenchmarkMapRemove(b *benchmark.Benchmark) error 
 
 // getControllerAddress returns the Atomix controller address
 func getControllerAddress() (string, error) {
+	helm := helm.New()
 	release, err := helm.Releases().Get("atomix-controller")
 	if err != nil {
 		return "", err

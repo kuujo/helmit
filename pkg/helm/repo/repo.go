@@ -32,11 +32,24 @@ import (
 
 var settings = cli.New()
 
-// Client is the Helm repository client
-type Client struct{}
+// NewClient creates a new Helm repository client
+func NewClient() Client {
+	return &repoClient{}
+}
+
+// Client is a Helm repository client
+type Client interface {
+	// Add adds a repository
+	Add(name string) *AddRequest
+	// Remove removes a repository
+	Remove(name string) *RemoveRequest
+}
+
+// repoClient is the Helm repository client
+type repoClient struct{}
 
 // Add adds a repository
-func (c *Client) Add(name string) *AddRequest {
+func (c *repoClient) Add(name string) *AddRequest {
 	return &AddRequest{
 		repo: &Repository{
 			Name: name,
@@ -45,7 +58,7 @@ func (c *Client) Add(name string) *AddRequest {
 }
 
 // Remove removes a repository
-func (c *Client) Remove(name string) *RemoveRequest {
+func (c *repoClient) Remove(name string) *RemoveRequest {
 	return &RemoveRequest{
 		repo: &Repository{
 			Name: name,

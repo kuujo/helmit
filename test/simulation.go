@@ -28,6 +28,7 @@ type ChartSimulationSuite struct {
 
 // SetupSimulation :: simulation
 func (s *ChartSimulationSuite) SetupSimulation(sim *simulation.Simulator) error {
+	helm := helm.New()
 	_, err := helm.Install("atomix-controller", "atomix-controller").
 		Set("scope", "Namespace").
 		Wait().

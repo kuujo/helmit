@@ -30,6 +30,7 @@ type ChartTestSuite struct {
 
 // TestLocalInstall tests a local chart installation
 func (s *ChartTestSuite) TestLocalInstall(t *testing.T) {
+	helm := helm.New()
 	_, err := helm.Install("atomix-controller", "atomix-controller").
 		Set("scope", "Namespace").
 		Wait().
@@ -88,6 +89,7 @@ func (s *ChartTestSuite) TestLocalInstall(t *testing.T) {
 
 // TestRemoteInstall tests a remote chart installation
 func (s *ChartTestSuite) TestRemoteInstall(t *testing.T) {
+	helm := helm.New()
 	err := helm.Repos().
 		Add("atomix").
 		URL("https://charts.atomix.io").

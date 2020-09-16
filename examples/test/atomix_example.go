@@ -32,6 +32,7 @@ type AtomixTestSuite struct {
 
 // SetupTestSuite sets up the Atomix cluster
 func (s *AtomixTestSuite) SetupTestSuite() error {
+	helm := helm.New()
 	err := helm.Repos().
 		Add("atomix").
 		URL("https://charts.atomix.io").
@@ -63,6 +64,7 @@ func (s *AtomixTestSuite) SetupTestSuite() error {
 
 // getControllerAddress returns the Atomix controller address
 func getControllerAddress() (string, error) {
+	helm := helm.New()
 	release, err := helm.Releases().Get("atomix-controller")
 	if err != nil {
 		return "", err
@@ -82,7 +84,7 @@ func (s *AtomixTestSuite) TestMap(t *testing.T) {
 	assert.NoError(t, err)
 	client, err := atomix.New(
 		address,
-		atomix.WithNamespace(helm.Namespace()),
+		atomix.WithNamespace(helm.DefaultNamespace),
 		atomix.WithScope("test"))
 	assert.NoError(t, err)
 

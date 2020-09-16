@@ -15,67 +15,87 @@
 package helm
 
 import (
+	"github.com/onosproject/helmit/pkg/helm/chart"
 	"github.com/onosproject/helmit/pkg/helm/release"
 	"github.com/onosproject/helmit/pkg/helm/repo"
 	"github.com/onosproject/helmit/pkg/kubernetes/config"
 )
 
-// Namespace returns the Helm namespace
-func Namespace() string {
-	return config.GetNamespaceFromEnv()
-}
+// DefaultNamespace is the default Helm namespace
+var DefaultNamespace = config.GetNamespaceFromEnv()
 
-// Repos returns the repository client
-func Repos() *repo.Client {
-	return &repo.Client{}
-}
-
-// Releases returns the release client
-func Releases(namespace ...string) *release.Client {
-	ns := Namespace()
+// New creates a new Helm client for the given namespace
+func New(namespace ...string) Helm {
+	ns := DefaultNamespace
 	if len(namespace) > 0 {
 		ns = namespace[0]
 	}
-
-	client, err := release.NewClient(ns)
-	if err != nil {
-		panic(err)
+	return &helmClient{
+		namespace: ns,
+		repos:     repo.NewClient(),
+		charts:    chart.NewClient(),
+		releases:  release.NewClient(ns),
 	}
-	return client
 }
 
-// Install installs a chart
-func Install(name string, chart string) *release.InstallRequest {
-	client, err := release.NewClient(Namespace())
-	if err != nil {
-		panic(err)
-	}
-	return client.Install(name, chart)
+// Helm is a Helm client
+type Helm interface {
+	// Namespace returns the Helm namespace
+	Namespace() string
+	// Repos returns the repository client
+	Repos() repo.Client
+	// Charts returns the chart client
+	Charts() chart.Client
+	// Releases returns the release client
+	Releases() release.Client
+	// Install installs a chart
+	Install(name string, chart string) *release.InstallRequest
+	// Uninstall uninstalls a chart
+	Uninstall(name string) *release.UninstallRequest
+	// Upgrade upgrades a release
+	Upgrade(name string, chart string) *release.UpgradeRequest
+	// Rollback rolls back a release
+	Rollback(name string) *release.RollbackRequest
 }
 
-// Uninstall uninstalls a chart
-func Uninstall(name string) *release.UninstallRequest {
-	client, err := release.NewClient(Namespace())
-	if err != nil {
-		panic(err)
-	}
-	return client.Uninstall(name)
+// helmClient is the default implementation of the Helm Client
+type helmClient struct {
+	namespace string
+	repos     repo.Client
+	charts    chart.Client
+	releases  release.Client
 }
 
-// Upgrade upgrades a release
-func Upgrade(name string, chart string) *release.UpgradeRequest {
-	client, err := release.NewClient(Namespace())
-	if err != nil {
-		panic(err)
-	}
-	return client.Upgrade(name, chart)
+func (c *helmClient) Namespace() string {
+	return c.namespace
 }
 
-// Rollback rolls back a release
-func Rollback(name string) *release.RollbackRequest {
-	client, err := release.NewClient(Namespace())
-	if err != nil {
-		panic(err)
-	}
-	return client.Rollback(name)
+func (c *helmClient) Repos() repo.Client {
+	return c.repos
 }
+
+func (c *helmClient) Charts() chart.Client {
+	return c.charts
+}
+
+func (c *helmClient) Releases() release.Client {
+	return c.releases
+}
+
+func (c *helmClient) Install(name string, chart string) *release.InstallRequest {
+	return c.releases.Install(name, chart)
+}
+
+func (c *helmClient) Uninstall(name string) *release.UninstallRequest {
+	return c.releases.Uninstall(name)
+}
+
+func (c *helmClient) Upgrade(name string, chart string) *release.UpgradeRequest {
+	return c.releases.Upgrade(name, chart)
+}
+
+func (c *helmClient) Rollback(name string) *release.RollbackRequest {
+	return c.releases.Rollback(name)
+}
+
+var _ Helm = &helmClient{}

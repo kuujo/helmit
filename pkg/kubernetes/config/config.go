@@ -15,7 +15,6 @@
 package config
 
 import (
-	"github.com/onosproject/helmit/pkg/util/random"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"os"
@@ -24,11 +23,13 @@ import (
 // NamespaceEnv is the environment variable for setting the k8s namespace
 const NamespaceEnv = "POD_NAMESPACE"
 
+const defaultNamespace = "default"
+
 // GetNamespaceFromEnv gets the Kubernetes namespace from the environment
 func GetNamespaceFromEnv() string {
 	namespace := os.Getenv(NamespaceEnv)
 	if namespace == "" {
-		namespace = random.NewPetName(2)
+		namespace = defaultNamespace
 	}
 	return namespace
 }

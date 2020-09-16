@@ -44,6 +44,7 @@ func (s *AtomixSimulationSuite) ScheduleSimulator(sim *simulation.Simulator) {
 
 // SetupSimulation sets up the Atomix cluster
 func (s *AtomixSimulationSuite) SetupSimulation(c *simulation.Simulator) error {
+	helm := helm.New()
 	err := helm.Repos().
 		Add("atomix").
 		URL("https://charts.atomix.io").
@@ -81,7 +82,7 @@ func (s *AtomixSimulationSuite) SetupSimulator(c *benchmark.Context) error {
 	}
 	client, err := atomix.New(
 		address,
-		atomix.WithNamespace(helm.Namespace()),
+		atomix.WithNamespace(helm.DefaultNamespace),
 		atomix.WithScope(c.Name))
 	if err != nil {
 		return err
@@ -126,6 +127,7 @@ func (s *AtomixSimulationSuite) SimulateMapRemove(c *simulation.Simulator) error
 
 // getControllerAddress returns the Atomix controller address
 func getControllerAddress() (string, error) {
+	helm := helm.New()
 	release, err := helm.Releases().Get("atomix-controller")
 	if err != nil {
 		return "", err
