@@ -33,6 +33,134 @@ If the chart repository is not accessible from within the test container, you ca
 URL when creating the chart:
 
 ```go
+repo := helm.Repo(
+	"incubator", 
+    chart.WithRepository("http://storage.googleapis.com/kubernetes-charts-incubator"))
+
+chart := repo.Chart("kafka", "2.1.0")
+
+release := chart.Release("kafka")
+
+err := release.Install(release.WithDryRun(), release.WithWait(), release.WithTimeout(time.Minute))
+
+chart := helm.Chart(
+	"kafka", 
+	chart.WithRepository("http://storage.googleapis.com/kubernetes-charts-incubator"),
+	chart.WithVersion("2.1.0"))
+
+release := chart.Release(
+	"kafka",
+	release.WithValue("replicas", 2), 
+	release.WithValue("zookeeper.replicaCount", 3),
+	release.WithDryRun(),
+	release.WithTimeout(time.Minute),
+	release.WithWait())
+
+err := release.Install()
+
+release := chart.Release("kafka")
+
+
+repo := helm.NewRepo("incubator", ...)
+err := repo.Add()
+
+
+repo := helm.Repo("incubator")
+
+
+chart := helm.NewChart("kafka", ...)
+
+
+release := chart.NewRelease("kafka")
+err := release.Install()
+
+
+repo := helm.Repo("incubator")
+
+chart := repo.Chart("kafka")
+
+release := chart.Release("kafka")
+
+
+
+repo := helm.Repo("incubator")
+
+chart := helm.Chart("incubator/kafka")
+
+release := helm.Release("kafka")
+
+
+
+repo, err := helm.NewRepo("incubator", ...)
+
+
+chart, err := repo.GetChart("kafka", ...)
+
+chart, err := helm.GetChart("incubator/kafka", ...)
+
+chart, err := helm.GetChart("kafka", ...)
+
+chart, err := helm.GetChart("./kafka", ...)
+
+
+release, err := chart.NewRelease("kafka", ...)
+err := release.Install(...)
+
+release, err := chart.GetRelease("kafka")
+err := release.Uninstall(...)
+
+release, err := helm.GetRelease("kafka")
+err := release.Uninstall(...)
+
+
+
+repo, err := helm.GetRepo("incubator")
+
+repo, err := helm.NewRepo("incubator")
+err := repo.Add(repo.WithURL("https://..."))
+err := repo.Remove()
+
+chart, err := repo.GetChart("kafka")
+
+charts, err := repo.GetCharts()
+
+chart, err := helm.GetChart("incubator/kafka")
+
+chart, err := helm.GetChart("./kafka")
+
+release, err := helm.NewRelease("kafka", "incubator/kafka")
+err := release.Install(release.WithValue("replicaCount", 2), release.WithWait(), release.WithTimeout(time.Second))
+err := release.Uninstall(...)
+
+
+
+
+
+err := helm.Install(
+	"kafka", 
+	repo.WithURL("https://..."), 
+	repo.WithUsername("foo"), 
+	repo.WithPassword("bar"), 
+	chart.WithVersion("2.1.0"), 
+	release.WithWait())
+
+
+
+
+
+
+repo, err := helm.NewRepo("incubator")
+repo.Add(repo.WithURL("https://..."))
+
+
+chart, err := helm.GetChart("incubator/kafka")
+
+release, err := chart.NewRelease("kafka")
+err := release.Install(release.WithValue("replicaCount", 2), release.WithWait())
+err := release.Uninstall(...)
+```
+
+```go
 helm.Chart("kafka", "http://storage.googleapis.com/kubernetes-charts-incubator").
 	Release("kafka").
 	Install(true)

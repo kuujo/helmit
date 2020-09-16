@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package helm
+package context
 
-import "path/filepath"
+import (
+	"os"
+	"path/filepath"
+)
 
 var context = &Context{}
 
@@ -47,7 +50,16 @@ func SetContext(ctx *Context) error {
 		Values:     ctx.Values,
 		ValueFiles: ctxValueFiles,
 	}
+
+	if context.WorkDir != "" {
+		return os.Chdir(context.WorkDir)
+	}
 	return nil
+}
+
+// GetContext gets the Helm context
+func GetContext() *Context {
+	return context
 }
 
 // Context is a Helm context

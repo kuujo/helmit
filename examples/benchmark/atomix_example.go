@@ -20,6 +20,8 @@ import (
 	"github.com/atomix/go-client/pkg/client/map"
 	"github.com/onosproject/helmit/pkg/benchmark"
 	"github.com/onosproject/helmit/pkg/helm"
+	helmrelease "github.com/onosproject/helmit/pkg/helm/release"
+	helmrepo "github.com/onosproject/helmit/pkg/helm/repo"
 	"github.com/onosproject/helmit/pkg/input"
 	"github.com/onosproject/helmit/pkg/kubernetes"
 	"time"
@@ -36,21 +38,38 @@ type AtomixBenchmarkSuite struct {
 
 // SetupBenchmarkSuite sets up the Atomix cluster
 func (s *AtomixBenchmarkSuite) SetupSuite(c *benchmark.Context) error {
-	err := helm.Chart("atomix-controller").
-		Release("atomix-controller").
-		Set("scope", "Namespace").
-		Install(true)
+	repo, err := helm.NewRepo("atomix")
 	if err != nil {
 		return err
 	}
 
-	err = helm.Chart("atomix-database").
-		Release("atomix-raft").
-		Set("clusters", 3).
-		Set("partitions", 10).
-		Set("backend.replicas", 3).
-		Set("backend.image", "atomix/raft-replica:latest").
-		Install(true)
+	err = repo.Add(helmrepo.WithURL("https://charts.atomix.io"))
+	if err != nil {
+		return err
+	}
+
+	atomix, err := helm.NewRelease("atomix-controller", "atomix/atomix-controller", helmrelease.WithValue("scope", "Namespace"))
+	if err != nil {
+		return err
+	}
+
+	_, err = atomix.Install(helmrelease.WithWait())
+	if err != nil {
+		return err
+	}
+
+	raft, err := helm.NewRelease(
+		"atomix-raft",
+		"atomix/raft-replica:latest",
+		helmrelease.WithValue("clusters", 3),
+		helmrelease.WithValue("partitions", 10),
+		helmrelease.WithValue("backend.repliacs", 3),
+		helmrelease.WithValue("backend.image", "atomix/raft-replica:latest"))
+	if err != nil {
+		return err
+	}
+
+	_, err = raft.Install(helmrelease.WithWait())
 	if err != nil {
 		return err
 	}
