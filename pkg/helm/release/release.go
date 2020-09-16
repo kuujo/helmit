@@ -18,12 +18,13 @@ import (
 	"bytes"
 	"errors"
 	"github.com/onosproject/helmit/pkg/helm/context"
+	"github.com/onosproject/helmit/pkg/helm/values"
 	"github.com/onosproject/helmit/pkg/kubernetes"
 	"github.com/onosproject/helmit/pkg/kubernetes/filter"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/cli/values"
+	helmvalues "helm.sh/helm/v3/pkg/cli/values"
 	"helm.sh/helm/v3/pkg/downloader"
 	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/release"
@@ -89,13 +90,22 @@ func (c *Client) List() ([]*Release, error) {
 	return releases, nil
 }
 
+// Status gets the status of a release
+func (c *Client) Status(name string) (StatusReport, error) {
+	release, err := c.Get(name)
+	if err != nil {
+		return StatusReport{}, err
+	}
+	return release.StatusReport, nil
+}
+
 // Install installs a release
 func (c *Client) Install(release string, chart string) *InstallRequest {
 	return &InstallRequest{
 		client: c,
 		name:   release,
 		chart:  chart,
-		values: make(map[string]interface{}),
+		values: values.New(),
 	}
 }
 
@@ -113,7 +123,7 @@ func (c *Client) Upgrade(release string, chart string) *UpgradeRequest {
 		client: c,
 		name:   release,
 		chart:  chart,
-		values: make(map[string]interface{}),
+		values: values.New(),
 	}
 }
 
@@ -125,10 +135,48 @@ func (c *Client) Rollback(release string) *RollbackRequest {
 	}
 }
 
+type Status string
+
+const (
+	// StatusUnknown indicates that a release is in an uncertain state.
+	StatusUnknown Status = Status(release.StatusUnknown)
+	// StatusDeployed indicates that the release has been pushed to Kubernetes.
+	StatusDeployed Status = Status(release.StatusDeployed)
+	// StatusUninstalled indicates that a release has been uninstalled from Kubernetes.
+	StatusUninstalled Status = Status(release.StatusUninstalled)
+	// StatusSuperseded indicates that this release object is outdated and a newer one exists.
+	StatusSuperseded Status = Status(release.StatusSuperseded)
+	// StatusFailed indicates that the release was not successfully deployed.
+	StatusFailed Status = Status(release.StatusFailed)
+	// StatusUninstalling indicates that a uninstall operation is underway.
+	StatusUninstalling Status = Status(release.StatusUninstalling)
+	// StatusPendingInstall indicates that an install operation is underway.
+	StatusPendingInstall Status = Status(release.StatusPendingInstall)
+	// StatusPendingUpgrade indicates that an upgrade operation is underway.
+	StatusPendingUpgrade Status = Status(release.StatusPendingUpgrade)
+	// StatusPendingRollback indicates that an rollback operation is underway.
+	StatusPendingRollback Status = Status(release.StatusPendingRollback)
+)
+
+// StatusReport is Helm release status report
+type StatusReport struct {
+	Status        Status
+	FirstDeployed time.Time
+	LastDeployed  time.Time
+}
+
 // Release is a Helm release
 type Release struct {
-	release *release.Release
-	client  kubernetes.Client
+	StatusReport
+	Namespace string
+	Name      string
+	values    *values.ImmutableValues
+	client    kubernetes.Client
+}
+
+// Values returns the release values
+func (r *Release) Values() *values.ImmutableValues {
+	return r.values
 }
 
 // Client returns the release client
@@ -148,7 +196,7 @@ type InstallRequest struct {
 	username                 string
 	password                 string
 	version                  string
-	values                   map[string]interface{}
+	values                   *values.Values
 	skipCRDs                 bool
 	includeCRDs              bool
 	disableHooks             bool
@@ -196,7 +244,7 @@ func (r *InstallRequest) Version(version string) *InstallRequest {
 }
 
 func (r *InstallRequest) Set(path string, value interface{}) *InstallRequest {
-	setValue(r.values, path, value)
+	r.values.Set(path, value)
 	return r
 }
 
@@ -309,7 +357,7 @@ func (r *InstallRequest) Do() (*Release, error) {
 	}
 
 	ctx := context.GetContext().Release(r.name)
-	valuesOptions := &values.Options{
+	valuesOptions := &helmvalues.Options{
 		ValueFiles: ctx.ValueFiles,
 		Values:     ctx.Values,
 	}
@@ -318,8 +366,8 @@ func (r *InstallRequest) Do() (*Release, error) {
 		return nil, err
 	}
 
-	values := mergeValues(overrides, normalizeValues(r.values))
-	release, err := install.Run(chart, values)
+	values := r.values.Normalize().Override(values.New(overrides))
+	release, err := install.Run(chart, values.Values())
 	return getRelease(r.client.config, release)
 }
 
@@ -347,7 +395,7 @@ type UpgradeRequest struct {
 	username     string
 	password     string
 	version      string
-	values       map[string]interface{}
+	values       *values.Values
 	disableHooks bool
 	dryRun       bool
 	atomic       bool
@@ -391,7 +439,7 @@ func (r *UpgradeRequest) Version(version string) *UpgradeRequest {
 }
 
 func (r *UpgradeRequest) Set(path string, value interface{}) *UpgradeRequest {
-	setValue(r.values, path, value)
+	r.values.Set(path, value)
 	return r
 }
 
@@ -455,7 +503,7 @@ func (r *UpgradeRequest) Do() (*Release, error) {
 	}
 
 	ctx := context.GetContext().Release(r.name)
-	valuesOptions := &values.Options{
+	valuesOptions := &helmvalues.Options{
 		ValueFiles: ctx.ValueFiles,
 		Values:     ctx.Values,
 	}
@@ -464,7 +512,7 @@ func (r *UpgradeRequest) Do() (*Release, error) {
 		return nil, err
 	}
 
-	values := mergeValues(overrides, normalizeValues(r.values))
+	values := r.values.Normalize().Override(values.New(overrides))
 
 	if upgrade.Install {
 		// If a release does not exist, install it. If another error occurs during
@@ -507,12 +555,12 @@ func (r *UpgradeRequest) Do() (*Release, error) {
 				}
 			}
 
-			_, err = install.Run(chart, values)
+			_, err = install.Run(chart, values.Values())
 			return nil, err
 		}
 	}
 
-	release, err := upgrade.Run(r.name, chart, values)
+	release, err := upgrade.Run(r.name, chart, values.Values())
 	return getRelease(r.client.config, release)
 }
 
@@ -566,8 +614,16 @@ func getRelease(config *action.Configuration, release *release.Release) (*Releas
 		return nil, err
 	}
 
+	values := values.New(release.Chart.Values).Override(values.New(release.Config))
 	return &Release{
-		release: release,
-		client:  client,
+		StatusReport: StatusReport{
+			Status:        Status(release.Info.Status),
+			FirstDeployed: release.Info.FirstDeployed.Time,
+			LastDeployed:  release.Info.LastDeployed.Time,
+		},
+		Namespace: release.Namespace,
+		Name:      release.Name,
+		values:    values.Immutable(),
+		client:    client,
 	}, nil
 }
