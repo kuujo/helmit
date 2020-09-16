@@ -25,13 +25,13 @@ func Namespace() string {
 	return config.GetNamespaceFromEnv()
 }
 
-// Repo returns the repository client
-func Repo() *repo.Client {
+// Repos returns the repository client
+func Repos() *repo.Client {
 	return &repo.Client{}
 }
 
-// Release returns the release client
-func Release(namespace ...string) *release.Client {
+// Releases returns the release client
+func Releases(namespace ...string) *release.Client {
 	ns := Namespace()
 	if len(namespace) > 0 {
 		ns = namespace[0]

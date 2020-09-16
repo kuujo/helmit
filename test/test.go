@@ -30,7 +30,7 @@ type ChartTestSuite struct {
 
 // TestLocalInstall tests a local chart installation
 func (s *ChartTestSuite) TestLocalInstall(t *testing.T) {
-	_, err := helm.Install("atomix-controller", "kubernetes-controller").
+	_, err := helm.Install("atomix-controller", "atomix-controller").
 		Set("scope", "Namespace").
 		Wait().
 		Do()
@@ -48,13 +48,11 @@ func (s *ChartTestSuite) TestLocalInstall(t *testing.T) {
 		Do()
 	assert.NoError(t, err)
 
-	client := topo.Client()
-
-	pods, err := client.CoreV1().Pods().List()
+	pods, err := topo.Client().CoreV1().Pods().List()
 	assert.NoError(t, err)
 	assert.Len(t, pods, 2)
 
-	deployment, err := client.AppsV1().
+	deployment, err := topo.Client().AppsV1().
 		Deployments().
 		Get("onos-topo")
 	assert.NoError(t, err)
@@ -74,7 +72,7 @@ func (s *ChartTestSuite) TestLocalInstall(t *testing.T) {
 	assert.Len(t, pods, 1)
 	assert.NotEqual(t, pod.Name, pods[0].Name)
 
-	services, err := client.CoreV1().Services().List()
+	services, err := topo.Client().CoreV1().Services().List()
 	assert.NoError(t, err)
 	assert.Len(t, services, 2)
 
@@ -90,19 +88,64 @@ func (s *ChartTestSuite) TestLocalInstall(t *testing.T) {
 
 // TestRemoteInstall tests a remote chart installation
 func (s *ChartTestSuite) TestRemoteInstall(t *testing.T) {
-	err := helm.Repo().
-		Add("incubator").
-		URL("http://storage.googleapis.com/kubernetes-charts-incubator").
+	err := helm.Repos().
+		Add("atomix").
+		URL("https://charts.atomix.io").
 		Do()
 	assert.NoError(t, err)
 
-	_, err = helm.Install("kafka", "incubator/kafka").
-		Set("replicas", 1).
-		Set("zookeeper.replicaCount", 1).
+	_, err = helm.Install("atomix-controller", "atomix/atomix-controller").
+		Set("scope", "Namespace").
 		Wait().
 		Do()
 	assert.NoError(t, err)
 
-	err = helm.Uninstall("kafka").Do()
+	_, err = helm.Install("raft-storage-controller", "raft-storage-controller").
+		Set("scope", "Namespace").
+		Wait().
+		Do()
+	assert.NoError(t, err)
+
+	topo, err := helm.Install("onos-topo", "onos-topo").
+		Set("store.controller", "atomix-controller-kubernetes-controller:5679").
+		Wait().
+		Do()
+	assert.NoError(t, err)
+
+	pods, err := topo.Client().CoreV1().Pods().List()
+	assert.NoError(t, err)
+	assert.Len(t, pods, 2)
+
+	deployment, err := topo.Client().AppsV1().
+		Deployments().
+		Get("onos-topo")
+	assert.NoError(t, err)
+
+	pods, err = deployment.Pods().List()
+	assert.NoError(t, err)
+	assert.Len(t, pods, 1)
+	pod := pods[0]
+	err = pod.Delete()
+	assert.NoError(t, err)
+
+	err = deployment.Wait(1 * time.Minute)
+	assert.NoError(t, err)
+
+	pods, err = deployment.Pods().List()
+	assert.NoError(t, err)
+	assert.Len(t, pods, 1)
+	assert.NotEqual(t, pod.Name, pods[0].Name)
+
+	services, err := topo.Client().CoreV1().Services().List()
+	assert.NoError(t, err)
+	assert.Len(t, services, 2)
+
+	err = helm.Uninstall("atomix-controller").Do()
+	assert.NoError(t, err)
+
+	err = helm.Uninstall("raft-storage-controller").Do()
+	assert.NoError(t, err)
+
+	err = helm.Uninstall("onos-topo").Do()
 	assert.NoError(t, err)
 }

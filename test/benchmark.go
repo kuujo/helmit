@@ -30,16 +30,15 @@ type ChartBenchmarkSuite struct {
 
 // SetupBenchmark :: benchmark
 func (s *ChartBenchmarkSuite) SetupSuite(b *benchmark.Context) error {
-	atomix := helm.Chart("kubernetes-controller").
-		Release("atomix-controller").
-		Set("scope", "Namespace")
-
-	err := atomix.Install(true)
+	_, err := helm.Install("atomix-controller", "atomix-controller").
+		Set("scope", "Namespace").
+		Wait().
+		Do()
 	if err != nil {
 		return err
 	}
 
-	err = atomix.Uninstall()
+	err = helm.Uninstall("atomix-controller").Do()
 	if err != nil {
 		return err
 	}

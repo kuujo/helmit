@@ -20,7 +20,6 @@ import (
 	atomix "github.com/atomix/go-client/pkg/client"
 	"github.com/atomix/go-client/pkg/client/map"
 	"github.com/onosproject/helmit/pkg/helm"
-	"github.com/onosproject/helmit/pkg/kubernetes"
 	"github.com/onosproject/helmit/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -33,21 +32,29 @@ type AtomixTestSuite struct {
 
 // SetupTestSuite sets up the Atomix cluster
 func (s *AtomixTestSuite) SetupTestSuite() error {
-	err := helm.Chart("atomix-controller").
-		Release("atomix-controller").
-		Set("scope", "Namespace").
-		Install(true)
+	err := helm.Repos().
+		Add("atomix").
+		URL("https://charts.atomix.io").
+		Do()
 	if err != nil {
 		return err
 	}
 
-	err = helm.Chart("atomix-database").
-		Release("atomix-raft").
+	_, err = helm.Install("atomix-controller", "atomix/atomix-controller").
+		Set("scope", "Namespace").
+		Wait().
+		Do()
+	if err != nil {
+		return err
+	}
+
+	_, err = helm.Install("atomix-raft", "atomix/atomix-database").
 		Set("clusters", 3).
 		Set("partitions", 10).
 		Set("backend.replicas", 3).
 		Set("backend.image", "atomix/raft-replica:latest").
-		Install(true)
+		Wait().
+		Do()
 	if err != nil {
 		return err
 	}
@@ -56,12 +63,11 @@ func (s *AtomixTestSuite) SetupTestSuite() error {
 
 // getControllerAddress returns the Atomix controller address
 func getControllerAddress() (string, error) {
-	release := helm.Chart("atomix-controller").Release("atomix-controller")
-	client, err := kubernetes.NewForRelease(release)
+	release, err := helm.Releases().Get("atomix-controller")
 	if err != nil {
 		return "", err
 	}
-	services, err := client.CoreV1().Services().List()
+	services, err := release.Client().CoreV1().Services().List()
 	if err != nil || len(services) == 0 {
 		return "", err
 	}
