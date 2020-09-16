@@ -17,7 +17,7 @@ package simulation
 import (
 	"context"
 	"fmt"
-	"github.com/onosproject/helmit/pkg/helm"
+	helmcontext "github.com/onosproject/helmit/pkg/helm/context"
 	"github.com/onosproject/helmit/pkg/registry"
 	"github.com/onosproject/helmit/pkg/util/logging"
 	"google.golang.org/grpc"
@@ -264,7 +264,7 @@ type simulatorServer struct {
 
 // Run runs a simulation
 func (s *simulatorServer) Run() error {
-	err := helm.SetContext(&helm.Context{
+	err := helmcontext.SetContext(&helmcontext.Context{
 		WorkDir:    s.config.Context,
 		Values:     s.config.Values,
 		ValueFiles: s.config.ValueFiles,

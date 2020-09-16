@@ -30,6 +30,20 @@ func Repo() *repo.Client {
 	return &repo.Client{}
 }
 
+// Release returns the release client
+func Release(namespace ...string) *release.Client {
+	ns := Namespace()
+	if len(namespace) > 0 {
+		ns = namespace[0]
+	}
+
+	client, err := release.NewClient(ns)
+	if err != nil {
+		panic(err)
+	}
+	return client
+}
+
 // Install installs a chart
 func Install(name string, chart string) *release.InstallRequest {
 	client, err := release.NewClient(Namespace())
@@ -65,21 +79,3 @@ func Rollback(name string) *release.RollbackRequest {
 	}
 	return client.Rollback(name)
 }
-
-// request is an interface for Helm requests
-type request interface {
-	// Do executes the request
-	Do() error
-}
-
-var _ request = &repo.AddRequest{}
-
-var _ request = &repo.RemoveRequest{}
-
-var _ request = &release.InstallRequest{}
-
-var _ request = &release.UninstallRequest{}
-
-var _ request = &release.UpgradeRequest{}
-
-var _ request = &release.RollbackRequest{}

@@ -17,7 +17,7 @@ package test
 import (
 	"context"
 	"fmt"
-	"github.com/onosproject/helmit/pkg/helm"
+	helmcontext "github.com/onosproject/helmit/pkg/helm/context"
 	"github.com/onosproject/helmit/pkg/registry"
 	"google.golang.org/grpc"
 	"net"
@@ -39,7 +39,7 @@ type Worker struct {
 
 // Run runs a benchmark
 func (w *Worker) Run() error {
-	err := helm.SetContext(&helm.Context{
+	err := helmcontext.SetContext(&helmcontext.Context{
 		WorkDir:    w.config.Context,
 		Values:     w.config.Values,
 		ValueFiles: w.config.ValueFiles,

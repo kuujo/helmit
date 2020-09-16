@@ -15,11 +15,8 @@
 package test
 
 import (
-	"fmt"
 	"testing"
 	"time"
-
-	"github.com/onosproject/helmit/pkg/kubernetes"
 
 	"github.com/onosproject/helmit/pkg/helm"
 	"github.com/onosproject/helmit/pkg/test"
@@ -33,26 +30,25 @@ type ChartTestSuite struct {
 
 // TestLocalInstall tests a local chart installation
 func (s *ChartTestSuite) TestLocalInstall(t *testing.T) {
-	atomix := helm.Chart("kubernetes-controller").
-		Release("atomix-controller").
-		Set("scope", "Namespace")
-	err := atomix.Install(true)
+	_, err := helm.Install("atomix-controller", "kubernetes-controller").
+		Set("scope", "Namespace").
+		Wait().
+		Do()
 	assert.NoError(t, err)
 
-	raft := helm.Chart("raft-storage-controller").
-		Release("raft-storage-controller").
-		Set("scope", "Namespace")
-
-	err = raft.Install(true)
+	_, err = helm.Install("raft-storage-controller", "raft-storage-controller").
+		Set("scope", "Namespace").
+		Wait().
+		Do()
 	assert.NoError(t, err)
 
-	topo := helm.Chart("onos-topo").
-		Release("onos-topo").
-		Set("store.controller", fmt.Sprintf("atomix-controller-kubernetes-controller:5679"))
-	err = topo.Install(true)
+	topo, err := helm.Install("onos-topo", "onos-topo").
+		Set("store.controller", "atomix-controller-kubernetes-controller:5679").
+		Wait().
+		Do()
 	assert.NoError(t, err)
 
-	client := kubernetes.NewForReleaseOrDie(topo)
+	client := topo.Client()
 
 	pods, err := client.CoreV1().Pods().List()
 	assert.NoError(t, err)
@@ -82,25 +78,31 @@ func (s *ChartTestSuite) TestLocalInstall(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, services, 2)
 
-	err = atomix.Uninstall()
+	err = helm.Uninstall("atomix-controller").Do()
 	assert.NoError(t, err)
 
-	err = raft.Uninstall()
+	err = helm.Uninstall("raft-storage-controller").Do()
 	assert.NoError(t, err)
 
-	err = topo.Uninstall()
+	err = helm.Uninstall("onos-topo").Do()
 	assert.NoError(t, err)
 }
 
 // TestRemoteInstall tests a remote chart installation
 func (s *ChartTestSuite) TestRemoteInstall(t *testing.T) {
-	kafka := helm.Chart("kafka", "http://storage.googleapis.com/kubernetes-charts-incubator").
-		Release("kafka").
-		Set("replicas", 1).
-		Set("zookeeper.replicaCount", 1)
-	err := kafka.Install(true)
+	err := helm.Repo().
+		Add("incubator").
+		URL("http://storage.googleapis.com/kubernetes-charts-incubator").
+		Do()
 	assert.NoError(t, err)
 
-	err = kafka.Uninstall()
+	_, err = helm.Install("kafka", "incubator/kafka").
+		Set("replicas", 1).
+		Set("zookeeper.replicaCount", 1).
+		Wait().
+		Do()
+	assert.NoError(t, err)
+
+	err = helm.Uninstall("kafka").Do()
 	assert.NoError(t, err)
 }

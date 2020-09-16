@@ -19,7 +19,6 @@ import (
 	"errors"
 	"github.com/onosproject/helmit/pkg/helm/context"
 	"github.com/onosproject/helmit/pkg/kubernetes"
-	"github.com/onosproject/helmit/pkg/kubernetes/config"
 	"github.com/onosproject/helmit/pkg/kubernetes/filter"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -36,29 +35,6 @@ import (
 )
 
 var settings = cli.New()
-
-var conf = &configs{
-	configs: make(map[string]*action.Configuration),
-}
-
-type configs struct {
-	configs map[string]*action.Configuration
-	mu      sync.Mutex
-}
-
-func (c *configs) get(namespace string) (*action.Configuration, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	config, ok := c.configs[namespace]
-	if !ok {
-		config = &action.Configuration{}
-		if err := config.Init(settings.RESTClientGetter(), namespace, "memory", log.Printf); err != nil {
-			return nil, err
-		}
-		c.configs[namespace] = config
-	}
-	return config, nil
-}
 
 // NewClient returns a new release client
 func NewClient(namespace string) (*Client, error) {
@@ -90,7 +66,7 @@ func (c *Client) Get(name string) (*Release, error) {
 	} else if len(list) > 1 {
 		return nil, errors.New("release is ambiguous")
 	}
-	return c.getRelease(list[0])
+	return getRelease(c.config, list[0])
 }
 
 // List lists releases
@@ -104,7 +80,7 @@ func (c *Client) List() ([]*Release, error) {
 
 	releases := make([]*Release, len(list))
 	for i, release := range list {
-		r, err := c.getRelease(release)
+		r, err := getRelease(c.config, release)
 		if err != nil {
 			return nil, err
 		}
@@ -113,31 +89,10 @@ func (c *Client) List() ([]*Release, error) {
 	return releases, nil
 }
 
-func (c *Client) getRelease(release *release.Release) (*Release, error) {
-	resources, err := c.config.KubeClient.Build(bytes.NewBufferString(release.Manifest), true)
-	if err != nil {
-		return nil, err
-	}
-
-	parent, err := kubernetes.NewForNamespace(c.namespace)
-	if err != nil {
-		return nil, err
-	}
-
-	client, err := kubernetes.NewFiltered(c.namespace, filter.Resources(parent, resources))
-	if err != nil {
-		return nil, err
-	}
-
-	return &Release{
-		release: release,
-		client:  client,
-	}, nil
-}
-
 // Install installs a release
 func (c *Client) Install(release string, chart string) *InstallRequest {
 	return &InstallRequest{
+		client: c,
 		name:   release,
 		chart:  chart,
 		values: make(map[string]interface{}),
@@ -147,13 +102,15 @@ func (c *Client) Install(release string, chart string) *InstallRequest {
 // Uninstall uninstalls a release
 func (c *Client) Uninstall(release string) *UninstallRequest {
 	return &UninstallRequest{
-		name: release,
+		client: c,
+		name:   release,
 	}
 }
 
 // Upgrade upgrades a release
 func (c *Client) Upgrade(release string, chart string) *UpgradeRequest {
 	return &UpgradeRequest{
+		client: c,
 		name:   release,
 		chart:  chart,
 		values: make(map[string]interface{}),
@@ -163,7 +120,8 @@ func (c *Client) Upgrade(release string, chart string) *UpgradeRequest {
 // Rollback rolls back a release
 func (c *Client) Rollback(release string) *RollbackRequest {
 	return &RollbackRequest{
-		name: release,
+		client: c,
+		name:   release,
 	}
 }
 
@@ -180,8 +138,8 @@ func (r *Release) Client() kubernetes.Client {
 
 // InstallRequest is a release install request
 type InstallRequest struct {
+	client                   *Client
 	name                     string
-	namespace                string
 	chart                    string
 	repo                     string
 	caFile                   string
@@ -200,11 +158,6 @@ type InstallRequest struct {
 	atomic                   bool
 	wait                     bool
 	timeout                  time.Duration
-}
-
-func (r *InstallRequest) Namespace(namespace string) *InstallRequest {
-	r.namespace = namespace
-	return r
 }
 
 func (r *InstallRequest) CaFile(caFile string) *InstallRequest {
@@ -292,18 +245,8 @@ func (r *InstallRequest) Timeout(timeout time.Duration) *InstallRequest {
 	return r
 }
 
-func (r *InstallRequest) Do() error {
-	namespace := r.namespace
-	if namespace == "" {
-		namespace = config.GetNamespaceFromEnv()
-	}
-
-	configuration, err := conf.get(namespace)
-	if err != nil {
-		return err
-	}
-
-	install := action.NewInstall(configuration)
+func (r *InstallRequest) Do() (*Release, error) {
+	install := action.NewInstall(r.client.config)
 
 	// Setup the repo options
 	install.RepoURL = r.repo
@@ -318,7 +261,7 @@ func (r *InstallRequest) Do() error {
 
 	// Setup the release options
 	install.ReleaseName = r.name
-	install.Namespace = namespace
+	install.Namespace = r.client.namespace
 	install.Atomic = r.atomic
 	install.Replace = r.replace
 	install.DryRun = r.dryRun
@@ -332,13 +275,13 @@ func (r *InstallRequest) Do() error {
 	// Locate the chart path
 	path, err := install.ChartPathOptions.LocateChart(r.chart, settings)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Check chart dependencies to make sure all are present in /charts
 	chart, err := loader.Load(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if req := chart.Metadata.Dependencies; req != nil {
@@ -357,10 +300,10 @@ func (r *InstallRequest) Do() error {
 					RepositoryCache:  settings.RepositoryCache,
 				}
 				if err := man.Update(); err != nil {
-					return err
+					return nil, err
 				}
 			} else {
-				return err
+				return nil, err
 			}
 		}
 	}
@@ -372,45 +315,30 @@ func (r *InstallRequest) Do() error {
 	}
 	overrides, err := valuesOptions.MergeValues(getter.All(settings))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	values := mergeValues(overrides, normalizeValues(r.values))
-	_, err = install.Run(chart, values)
-	return err
+	release, err := install.Run(chart, values)
+	return getRelease(r.client.config, release)
 }
 
 // UninstallRequest is a release uninstall request
 type UninstallRequest struct {
-	name      string
-	namespace string
-}
-
-func (r *UninstallRequest) Namespace(namespace string) *UninstallRequest {
-	r.namespace = namespace
-	return r
+	client *Client
+	name   string
 }
 
 func (r *UninstallRequest) Do() error {
-	namespace := r.namespace
-	if namespace == "" {
-		namespace = config.GetNamespaceFromEnv()
-	}
-
-	configuration, err := conf.get(namespace)
-	if err != nil {
-		return err
-	}
-
-	uninstall := action.NewUninstall(configuration)
-	_, err = uninstall.Run(r.name)
+	uninstall := action.NewUninstall(r.client.config)
+	_, err := uninstall.Run(r.name)
 	return err
 }
 
 // UpgradeRequest is a release upgrade request
 type UpgradeRequest struct {
+	client       *Client
 	name         string
-	namespace    string
 	chart        string
 	repo         string
 	caFile       string
@@ -425,11 +353,6 @@ type UpgradeRequest struct {
 	atomic       bool
 	wait         bool
 	timeout      time.Duration
-}
-
-func (r *UpgradeRequest) Namespace(namespace string) *UpgradeRequest {
-	r.namespace = namespace
-	return r
 }
 
 func (r *UpgradeRequest) CaFile(caFile string) *UpgradeRequest {
@@ -497,18 +420,8 @@ func (r *UpgradeRequest) Timeout(timeout time.Duration) *UpgradeRequest {
 	return r
 }
 
-func (r *UpgradeRequest) Do() error {
-	namespace := r.namespace
-	if namespace == "" {
-		namespace = config.GetNamespaceFromEnv()
-	}
-
-	configuration, err := conf.get(namespace)
-	if err != nil {
-		return err
-	}
-
-	upgrade := action.NewUpgrade(configuration)
+func (r *UpgradeRequest) Do() (*Release, error) {
+	upgrade := action.NewUpgrade(r.client.config)
 
 	// Setup the repo options
 	upgrade.RepoURL = r.repo
@@ -522,7 +435,7 @@ func (r *UpgradeRequest) Do() error {
 	upgrade.Version = r.version
 
 	// Setup the release options
-	upgrade.Namespace = namespace
+	upgrade.Namespace = r.client.namespace
 	upgrade.Atomic = r.atomic
 	upgrade.DryRun = r.dryRun
 	upgrade.DisableHooks = r.disableHooks
@@ -532,13 +445,13 @@ func (r *UpgradeRequest) Do() error {
 	// Locate the chart path
 	path, err := upgrade.ChartPathOptions.LocateChart(r.chart, settings)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Check chart dependencies to make sure all are present in /charts
 	chart, err := loader.Load(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	ctx := context.GetContext().Release(r.name)
@@ -548,7 +461,7 @@ func (r *UpgradeRequest) Do() error {
 	}
 	overrides, err := valuesOptions.MergeValues(getter.All(settings))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	values := mergeValues(overrides, normalizeValues(r.values))
@@ -556,10 +469,10 @@ func (r *UpgradeRequest) Do() error {
 	if upgrade.Install {
 		// If a release does not exist, install it. If another error occurs during
 		// the check, ignore the error and continue with the upgrade.
-		histClient := action.NewHistory(configuration)
+		histClient := action.NewHistory(r.client.config)
 		histClient.Max = 1
 		if _, err := histClient.Run(r.name); err == driver.ErrReleaseNotFound {
-			install := action.NewInstall(configuration)
+			install := action.NewInstall(r.client.config)
 			install.ChartPathOptions = upgrade.ChartPathOptions
 			install.DryRun = upgrade.DryRun
 			install.DisableHooks = upgrade.DisableHooks
@@ -586,45 +499,75 @@ func (r *UpgradeRequest) Do() error {
 							RepositoryCache:  settings.RepositoryCache,
 						}
 						if err := man.Update(); err != nil {
-							return err
+							return nil, err
 						}
 					} else {
-						return err
+						return nil, err
 					}
 				}
 			}
 
 			_, err = install.Run(chart, values)
-			return err
+			return nil, err
 		}
 	}
 
-	_, err = upgrade.Run(r.name, chart, values)
-	return err
+	release, err := upgrade.Run(r.name, chart, values)
+	return getRelease(r.client.config, release)
 }
 
 // RollbackRequest is a release rollback request
 type RollbackRequest struct {
-	name      string
-	namespace string
-}
-
-func (r *RollbackRequest) Namespace(namespace string) *RollbackRequest {
-	r.namespace = namespace
-	return r
+	client *Client
+	name   string
 }
 
 func (r *RollbackRequest) Do() error {
-	namespace := r.namespace
-	if namespace == "" {
-		namespace = config.GetNamespaceFromEnv()
-	}
-
-	configuration, err := conf.get(namespace)
-	if err != nil {
-		return err
-	}
-
-	rollback := action.NewRollback(configuration)
+	rollback := action.NewRollback(r.client.config)
 	return rollback.Run(r.name)
+}
+
+var conf = &configs{
+	configs: make(map[string]*action.Configuration),
+}
+
+type configs struct {
+	configs map[string]*action.Configuration
+	mu      sync.Mutex
+}
+
+func (c *configs) get(namespace string) (*action.Configuration, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	config, ok := c.configs[namespace]
+	if !ok {
+		config = &action.Configuration{}
+		if err := config.Init(settings.RESTClientGetter(), namespace, "memory", log.Printf); err != nil {
+			return nil, err
+		}
+		c.configs[namespace] = config
+	}
+	return config, nil
+}
+
+func getRelease(config *action.Configuration, release *release.Release) (*Release, error) {
+	resources, err := config.KubeClient.Build(bytes.NewBufferString(release.Manifest), true)
+	if err != nil {
+		return nil, err
+	}
+
+	parent, err := kubernetes.NewForNamespace(release.Namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := kubernetes.NewFiltered(release.Namespace, filter.Resources(parent, resources))
+	if err != nil {
+		return nil, err
+	}
+
+	return &Release{
+		release: release,
+		client:  client,
+	}, nil
 }
