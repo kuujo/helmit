@@ -6,6 +6,7 @@ require (
 	github.com/atomix/go-client v0.1.0
 	github.com/dustinkirkland/golang-petname v0.0.0-20190613200456-11339a705ed2
 	github.com/fatih/color v1.7.0
+	github.com/gofrs/flock v0.7.1
 	github.com/gogo/protobuf v1.3.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0
 	github.com/iancoleman/strcase v0.0.0-20191112232945-16388991a334
@@ -13,7 +14,6 @@ require (
 	github.com/spf13/cobra v0.0.6
 	github.com/stretchr/testify v1.5.1
 	golang.org/x/net v0.0.0-20200301022130-244492dfa37a // indirect
-	golang.org/x/tools v0.0.0-20190920225731-5eefd052ad72
 	google.golang.org/grpc v1.27.1
 	gopkg.in/yaml.v2 v2.2.8
 	helm.sh/helm/v3 v3.1.1

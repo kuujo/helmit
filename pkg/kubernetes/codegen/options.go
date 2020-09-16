@@ -220,5 +220,18 @@ func getOptionsFromConfig(config Config) ClientOptions {
 		resourceOpts := options.Groups[fmt.Sprintf("%s%s", resource.Group, resource.Version)].Resources[resource.Kind]
 		resourceOpts.Resource.References = references
 	}
+
+	options.Filters = FilterOptions{
+		Location: Location{
+			Path: fmt.Sprintf("%s/filter", config.Path),
+			File: "filters.go",
+		},
+		Package: Package{
+			Name:  "filter",
+			Path:  fmt.Sprintf("%s/filter", config.Package),
+			Alias: "filter",
+		},
+		Groups: options.Groups,
+	}
 	return options
 }
